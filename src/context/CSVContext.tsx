@@ -1,5 +1,4 @@
-// src/context/CSVContext.tsx
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode } from 'react';
 
 type CSVContent = {
   json: object[];
