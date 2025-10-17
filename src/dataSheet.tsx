@@ -2,14 +2,61 @@ import { useCSV } from "./context/CSVContext";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
 
-type SortMode = "asc" | "desc" | null;
+type SortMode = "asc" | "desc" | "original" | null;
+
+const sortCSVRows = (
+  rows: (string | number | null)[][],
+  colIndex: number,
+  mode: SortMode
+) => {
+  return [...rows].sort((a, b) => {
+    const valA = a[colIndex];
+    const valB = b[colIndex];
+
+    if (valA == null && valB == null) return 0;
+    if (valA == null) return mode === "asc" ? -1 : 1;
+    if (valB == null) return mode === "asc" ? 1 : -1;
+
+    const aStr = String(valA);
+    const bStr = String(valB);
+    const aNum = Number(aStr);
+    const bNum = Number(bStr);
+
+    const bothNumeric = !isNaN(aNum) && !isNaN(bNum);
+
+    if (bothNumeric) {
+      return mode === "asc" ? aNum - bNum : bNum - aNum;
+    }
+
+    const comparison = aStr.localeCompare(bStr, undefined, {
+      sensitivity: "base",
+      numeric: true,
+    });
+
+    return mode === "asc" ? comparison : -comparison;
+  });
+};
+
+const arrayToJson = (header: any[], rows: any[][]) => {
+  return rows.map((row) =>
+    header.reduce((acc, col, i) => {
+      acc[col] = row[i];
+      return acc;
+    }, {} as Record<string, any>)
+  );
+};
+
 
 const DataSheet = () => {
-  const { csvData, setCSVData } = useCSV(); // Ensure setCSVData is exposed from context
+  const { csvData, setCSVData } = useCSV();
   const [page, setPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>(null);
+
+  // keep a original array to clear sorting on 2nd click  
+  const [originalArray, setOriginalArray] = useState(csvData.content?.array);
+
 
   if (!csvData?.content) {
     return (
@@ -25,84 +72,56 @@ const DataSheet = () => {
     );
   }
 
-  const { array, json } = csvData.content;
+  const { array } = csvData.content;
+  const header = array[0];
+  const body = array.slice(1);
+  const totalRows = body.length;
+  const totalPages = Math.ceil(totalRows / rowsPerPage);
 
   const handleSortClick = (colIndex: number) => {
-    let newSortMode: SortMode;
+    let newMode: SortMode;
 
     if (sortCol !== colIndex) {
-      newSortMode = "asc";
+      newMode = "asc";
+    } else if (sortMode === "asc") {
+      newMode = "desc";
+    } else if (sortMode === "desc") {
+      newMode = "original";
     } else {
-      newSortMode = sortMode === "asc" ? "desc" : "asc";
+      newMode = "asc";
     }
 
-    setSortCol(colIndex);
-    setSortMode(newSortMode);
+    let newArray = array;
+    let newJson;
+
+    const original = originalArray || array;
+
+    if (newMode === "original") {
+      newArray = original;
+      newJson = arrayToJson(original[0], original.slice(1));
+    } else {
+      const sorted = sortCSVRows(original.slice(1), colIndex, newMode);
+      newArray = [original[0], ...sorted];
+      newJson = arrayToJson(original[0], sorted);
+    }
+
+    setSortCol(newMode === "original" ? null : colIndex);
+    setSortMode(newMode === "original" ? null : newMode);
     setPage(1);
-
-    const header = array[0];
-    const body = [...array.slice(1)];
-
-    body.sort((a, b) => {
-      const valA = a[colIndex];
-      const valB = b[colIndex];
-
-      // Null-safe comparison
-      if (valA == null && valB == null) return 0;
-      if (valA == null) return newSortMode === "asc" ? -1 : 1;
-      if (valB == null) return newSortMode === "asc" ? 1 : -1;
-
-      const aStr = String(valA);
-      const bStr = String(valB);
-
-      const aNum = Number(aStr);
-      const bNum = Number(bStr);
-      const aIsNum = !isNaN(aNum);
-      const bIsNum = !isNaN(bNum);
-
-      if (aIsNum && bIsNum) {
-        return newSortMode === "asc" ? aNum - bNum : bNum - aNum;
-      }
-
-      const comparison = aStr.localeCompare(bStr, undefined, {
-        sensitivity: "base",
-        numeric: true,
-      });
-
-      return newSortMode === "asc" ? comparison : -comparison;
-    });
-
-    const newJson = body.map((row) => {
-      const obj: Record<string, any> = {};
-      header.forEach((hdr, idx) => {
-        obj[hdr] = row[idx];
-      });
-      return obj;
-    });
-
     setCSVData({
       file: csvData.file,
       content: {
-        array: [header, ...body],
+        array: newArray,
         json: newJson,
       },
     });
   };
 
-  const totalRows = array.length - 1;
-  const totalPages = Math.ceil(totalRows / rowsPerPage);
 
-  const paginatedRows = array
-    .slice(1)
-    .slice((page - 1) * rowsPerPage, page * rowsPerPage);
-
-  const handleRowsPerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setRowsPerPage(Number(e.target.value));
-    setPage(1);
-  };
+  const paginatedRows = body.slice((page - 1) * rowsPerPage, page * rowsPerPage);
 
   return (
-    <div className="min-h-screen w-full max-w-7xl rounded bg-gray-900 text-white p-6 flex flex-col">
+    <div className="h-full w-full max-w-7xl rounded bg-gray-900 text-white p-6 flex flex-col">
       <nav className="mb-6">
         <NavLink
           to="/"
@@ -112,14 +131,14 @@ const DataSheet = () => {
         </NavLink>
       </nav>
 
-      <section className="flex-1 overflow-auto rounded border border-gray-700 shadow-lg bg-gray-800">
+      <section className="flex-1 min-h-fit h-fit overflow-auto rounded border border-gray-700 shadow-lg bg-gray-800">
         <table className="min-w-full border-collapse table-auto">
           <thead className="bg-gray-700 sticky top-0 z-10">
             <tr className="text-left">
               <th className="border border-gray-600 px-4 py-2 text-sm font-semibold sticky top-0 bg-gray-700">
                 #
               </th>
-              {array[0].map((cell, i) => (
+              {header.map((cell, i) => (
                 <th
                   key={i}
                   onClick={() => handleSortClick(i)}
@@ -147,7 +166,7 @@ const DataSheet = () => {
                     key={ci}
                     className="border border-gray-700 px-4 py-2 text-sm break-words max-w-xs"
                   >
-                    {cell !== null && cell !== undefined ? cell : <span className="text-gray-500">—</span>}
+                    {cell ?? <span className="text-gray-500">—</span>}
                   </td>
                 ))}
               </tr>
@@ -166,11 +185,16 @@ const DataSheet = () => {
             id="rowsPerPage"
             className="bg-gray-700 text-white px-2 py-1 rounded"
             value={rowsPerPage}
-            onChange={handleRowsPerPageChange}
+            onChange={(e) => {
+              setRowsPerPage(Number(e.target.value));
+              setPage(1);
+            }}
           >
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
+            {[10, 25, 50, 100].map((num) => (
+              <option key={num} value={num}>
+                {num}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -194,14 +218,6 @@ const DataSheet = () => {
           </button>
         </div>
       </div>
-
-      {/* JSON Preview */}
-      <section className="mt-8 bg-gray-800 rounded p-4 shadow-inner max-h-64 overflow-auto">
-        <h3 className="text-lg font-semibold mb-2">JSON Preview (first 5 rows)</h3>
-        <pre className="text-xs whitespace-pre-wrap text-gray-200 font-mono max-h-56 overflow-auto">
-          {JSON.stringify(json.slice(0, 5), null, 2)}
-        </pre>
-      </section>
     </div>
   );
 };
