@@ -20,16 +20,16 @@ interface FilterProps {
     initialValue?: string;
 }
 
-// --- Specific Props for Category Filter (Requires Options) ---
-
+/** Specific Props for Category Filter (Requires Options) */
 interface CategoryFilterProps extends FilterProps {
-    // In a real app, this would be dynamically fetched from the column data.
-    // For this demonstration, we use mock categories.
     categories: string[]; 
 }
 
+/** Define the type for the column data (an array of values for a single column). */
+export type ColumnData = (string | number | Date | null | undefined)[];
+
 // ----------------------------------------------------
-// --- Date Filter ---
+// --- Date Filter Component ---
 // ----------------------------------------------------
 
 const DateFilter = ({ onFilterChange, initialType = 'equals', initialValue = '' }: FilterProps) => {
@@ -95,7 +95,7 @@ const DateFilter = ({ onFilterChange, initialType = 'equals', initialValue = '' 
 };
 
 // ----------------------------------------------------
-// --- Number Filter ---
+// --- Number Filter Component ---
 // ----------------------------------------------------
 
 const NumberFilter = ({ onFilterChange, initialType = 'equals', initialValue = '' }: FilterProps) => {
@@ -160,7 +160,7 @@ const NumberFilter = ({ onFilterChange, initialType = 'equals', initialValue = '
 };
 
 // ----------------------------------------------------
-// --- String Filter ---
+// --- String Filter Component ---
 // ----------------------------------------------------
 
 const StringFilter = ({ onFilterChange, initialType = 'contains', initialValue = '' }: FilterProps) => {
@@ -224,25 +224,22 @@ const StringFilter = ({ onFilterChange, initialType = 'contains', initialValue =
 };
 
 // ----------------------------------------------------
-// --- Category Filter (Multi-Select Simulation) ---
+// --- Category Filter Component (Multi-Select) ---
 // ----------------------------------------------------
 
-const MOCK_CATEGORIES = ['Sales', 'Marketing', 'Engineering', 'HR', 'Finance']; // Mock options for visualization
-
-const CategoryFilter = ({ onFilterChange }: Omit<CategoryFilterProps, 'initialType' | 'initialValue'>) => {
+const CategoryFilter = ({ onFilterChange, categories }: CategoryFilterProps) => {
     // Only one filter type needed for multi-select: 'in'
     const filterType = 'in'; 
-    const categories = MOCK_CATEGORIES;
     const [selectedValues, setSelectedValues] = useState<string[]>([]);
     
-    // Auto-fire callback on state change
+    // FIX APPLIED: Added filterType to the dependency array.
     useEffect(() => {
         // Send back the array of selected items
         onFilterChange({
             type: filterType,
             value: selectedValues.length > 0 ? selectedValues : null
         });
-    }, [selectedValues, onFilterChange]);
+    }, [selectedValues, onFilterChange, filterType]);
 
     const handleToggleCategory = useCallback((category: string) => {
         setSelectedValues(prev => 
@@ -261,6 +258,7 @@ const CategoryFilter = ({ onFilterChange }: Omit<CategoryFilterProps, 'initialTy
             <h3 className="text-lg font-semibold text-blue-400 border-b border-gray-700 pb-2">Filter by Category (Select Multiple)</h3>
             
             <div className="flex flex-col gap-1 max-h-48 overflow-y-auto pr-2">
+                {/* Use the dynamically passed 'categories' prop */}
                 {categories.map((category) => (
                     <label 
                         key={category} 
@@ -288,5 +286,37 @@ const CategoryFilter = ({ onFilterChange }: Omit<CategoryFilterProps, 'initialTy
     );
 };
 
+// ----------------------------------------------------
+// --- Filter Classifier Logic ---
+// ----------------------------------------------------
 
-export { DateFilter, NumberFilter, StringFilter, CategoryFilter };
+// Helper function to check if a value is a non-empty string
+const isString = (val: any): val is string => typeof val === 'string' && val.trim().length > 0;
+const filterClassifier = (columnData: ColumnData, onFilterChange: FilterChangeCallback): React.ReactElement => {
+  const values = columnData.filter((v) => v !== null && v !== undefined);
+  const total = values.length;
+
+  if (total === 0) {
+    return <StringFilter onFilterChange={onFilterChange} />;
+  }
+  const isAllNumbers = values.every((val) => !isNaN(Number(val)) && typeof val !== 'boolean');  
+  if (isAllNumbers) {
+    return <NumberFilter onFilterChange={onFilterChange} />;
+  }
+  const isMostlyDates = values.filter((val) => !isNaN(Date.parse(String(val)))).length / total > 0.9;
+  if (isMostlyDates) {
+    return <DateFilter onFilterChange={onFilterChange} />;
+  }
+  const stringValues = values.filter(isString);
+  const stringCount = stringValues.length;
+  
+  if (stringCount / total > 0.8) { 
+    const uniqueValues = Array.from(new Set(stringValues));
+    if (uniqueValues.length > 1 && uniqueValues.length / stringCount < 0.2) {
+      return <CategoryFilter onFilterChange={onFilterChange} categories={uniqueValues} />;
+    }
+  }
+  return <StringFilter onFilterChange={onFilterChange} />;
+};
+
+export default filterClassifier;
