@@ -14,40 +14,40 @@ type ColumnData = (string | number | Date | null | undefined)[];
 
 /** Defines the criteria structure sent from a filter component to the parent. */
 type FilterCriteria = {
-    type: string;
-    value: string | string[] | null; 
+  type: string;
+  value: string | string[] | null;
 };
 
 // --- CONSTANTS ---
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 // Google Sheets/Excel base date: Dec 30, 1899 (adjusted for JS Date constructor)
-const GSHEETS_DATE_OFFSET = new Date(1899, 11, 30).getTime(); 
+const GSHEETS_DATE_OFFSET = new Date(1899, 11, 30).getTime();
 
 const gsheetsToDate = (value: number): string => {
-    // The value is guaranteed to be a number by the classifier logic.
+  // The value is guaranteed to be a number by the classifier logic.
 
-    const totalMs = value * MS_PER_DAY;
-    const date = new Date(GSHEETS_DATE_OFFSET + totalMs);
+  const totalMs = value * MS_PER_DAY;
+  const date = new Date(GSHEETS_DATE_OFFSET + totalMs);
 
-    // Format the date string in UTC to prevent timezone issues shifting the day
-    const year = date.getUTCFullYear();
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(date.getUTCDate()).padStart(2, '0');
-    
-    // Format the time part
-    const hours = String(date.getUTCHours()).padStart(2, '0');
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-    const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+  // Format the date string in UTC to prevent timezone issues shifting the day
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
 
-    // Return full date-time string (YYYY-MM-DD HH:MM:SS)
-    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  // Format the time part
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+
+  // Return full date-time string (YYYY-MM-DD HH:MM:SS)
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 };
 
 const displayDateValue = (value: number | string | null, isDateColumn: boolean): string | number | null => {
-    if (typeof value === 'number' && isDateColumn) {
-        return gsheetsToDate(value);
-    }
-    return value;
+  if (typeof value === 'number' && isDateColumn) {
+    return gsheetsToDate(value);
+  }
+  return value;
 };
 // --- SVG Components ---
 const ChevronUp = (props: React.SVGProps<SVGSVGElement>) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6" /></svg>;
@@ -65,14 +65,14 @@ const sortCSVRows = (rows: RowType[], colIndex: number, mode: SortMode) => {
     if (valA == null && valB == null) return 0;
     if (valA == null) return mode === "asc" ? -1 : 1;
     if (valB == null) return mode === "asc" ? 1 : -1;
-    
+
     // Check if both values are GSheets serials and the column is classified as a date.
     // NOTE: Sorting logic is simplified here to avoid passing column type. We rely on standard numeric/string sorting.
     const aNum = Number(valA), bNum = Number(valB);
-    
+
     // If both are plausible numbers, sort numerically. This covers GSheets serials and regular numbers.
     if (!isNaN(aNum) && !isNaN(bNum)) return mode === "asc" ? aNum - bNum : bNum - aNum;
-    
+
     // Otherwise, sort as strings.
     const aStr = String(valA), bStr = String(valB);
     const comparison = aStr.localeCompare(bStr, undefined, { sensitivity: "base", numeric: true });
@@ -95,7 +95,7 @@ const DataSheet = () => {
   const [sortMode, setSortMode] = useState<SortMode>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  
+
   const [columnFilters, setColumnFilters] = useState<Record<number, FilterCriteria>>({});
   const [activeFilterCol, setActiveFilterCol] = useState<number | null>(null);
   const [filterPosition, setFilterPosition] = useState<{ top: number, left: number } | null>(null);
@@ -115,32 +115,36 @@ const DataSheet = () => {
   const { array } = csvData.content;
   const header = array[0] as RowType;
   const body = array.slice(1) as RowType[];
-  
+
   const dataCleaner = (data: RowType[]) => data.filter(row => row.some(cell => cell !== null && cell !== ''));
   const cleanedBody = useMemo(() => dataCleaner(body), [body]);
-  const [originalArray, setOriginalArray] = useState(csvData.content?.array || []);
-  
+  // Store an immutable deep copy of the original uploaded array.
+  // This ensures sorting and filtering never mutate the true original.
+  const [originalArray] = useState(() =>
+    csvData.content?.array ? JSON.parse(JSON.stringify(csvData.content.array)) : []
+  );
+
   // Memoized function to get column data for the filterClassifier
   const getColumnData = (colIndex: number): ColumnData => {
     return cleanedBody.map(row => row[colIndex]);
   };
-  
+
   // Cache the classification results (string name) for each column
   const columnTypes = useMemo(() => {
     // Helper to get the component name from the filterClassifier's return value
     const getComponentName = (colIndex: number) => {
-        // We call the classifier just to get the type, and rely on the name property of the function component
-        const element = filterClassifier(getColumnData(colIndex), undefined, () => {});
-        return element?.type?.name || 'StringFilter';
+      // We call the classifier just to get the type, and rely on the name property of the function component
+      const element = filterClassifier(getColumnData(colIndex), undefined, () => { });
+      return element?.type?.name || 'StringFilter';
     };
 
     return header.map((_, i) => getComponentName(i));
   }, [cleanedBody, header, getColumnData]);
-  
+
   // Memoized Body filtered by search and column filters
   const filteredBody = useMemo(() => {
     let currentBody = cleanedBody;
-    
+
     // 1. Apply global search filter
     if (debouncedSearch) {
       const lower = debouncedSearch.toLowerCase();
@@ -149,20 +153,20 @@ const DataSheet = () => {
 
     // 2. Apply column filters
     const filterCols = Object.keys(columnFilters).map(Number).filter(colIndex => {
-        const criteria = columnFilters[colIndex];
-        return criteria && (
-            (criteria.value !== null && (Array.isArray(criteria.value) ? criteria.value.length > 0 : String(criteria.value).length > 0)) || 
-            criteria.type === 'empty' || 
-            criteria.type === 'not empty'
-        );
+      const criteria = columnFilters[colIndex];
+      return criteria && (
+        (criteria.value !== null && (Array.isArray(criteria.value) ? criteria.value.length > 0 : String(criteria.value).length > 0)) ||
+        criteria.type === 'empty' ||
+        criteria.type === 'not empty'
+      );
     });
 
     if (filterCols.length > 0) {
-        currentBody = currentBody.filter(row => 
-            filterCols.every(colIndex => 
-                applyFilter(row, colIndex, columnFilters[colIndex])
-            )
-        );
+      currentBody = currentBody.filter(row =>
+        filterCols.every(colIndex =>
+          applyFilter(row, colIndex, columnFilters[colIndex])
+        )
+      );
     }
 
     return currentBody;
@@ -200,20 +204,21 @@ const DataSheet = () => {
     if (sortCol === colIndex) newMode = sortMode === "asc" ? "desc" : sortMode === "desc" ? "original" : "asc";
     else newMode = "asc";
 
-    let newArray = csvData.content.array; 
-    
+    let newArray: RowType[];
+
     if (newMode !== "original" && newMode !== null) {
+      // Always sort based on the immutable original array (excluding header)
       const sorted = sortCSVRows(originalArray.slice(1) as RowType[], colIndex, newMode);
       newArray = [originalArray[0], ...sorted];
     } else {
-        newArray = csvData.content.array;
+      // Reset to original order (unsorted)
+      newArray = [...originalArray];
     }
 
     setSortCol(newMode === "original" ? null : colIndex);
     setSortMode(newMode === "original" ? null : newMode);
-    
-    setOriginalArray(newArray);
 
+    // Update only the working CSV data
     setCSVData({
       file: csvData.file,
       content: {
@@ -223,58 +228,58 @@ const DataSheet = () => {
     });
     setPage(1);
   };
-  
+
   // Function to calculate and set the position of the filter menu (Fixes cutting issue)
   const openFilterMenu = (colIndex: number) => {
-      if (activeFilterCol === colIndex) {
-          setActiveFilterCol(null);
-          setFilterPosition(null);
-          return;
-      }
+    if (activeFilterCol === colIndex) {
+      setActiveFilterCol(null);
+      setFilterPosition(null);
+      return;
+    }
 
-      const buttonElement = buttonRefs.current[colIndex];
-      if (!buttonElement) return;
+    const buttonElement = buttonRefs.current[colIndex];
+    if (!buttonElement) return;
 
-      const rect = buttonElement.getBoundingClientRect();
-      const menuWidth = 288; // w-72 = 288px
+    const rect = buttonElement.getBoundingClientRect();
+    const menuWidth = 288; // w-72 = 288px
 
-      setActiveFilterCol(colIndex);
-      
-      const calculatedLeft = rect.right - menuWidth;
-      const left = Math.max(16, calculatedLeft);
-      
-      setFilterPosition({
-          top: rect.bottom + 8,
-          left: left
-      });
+    setActiveFilterCol(colIndex);
+
+    const calculatedLeft = rect.right - menuWidth;
+    const left = Math.max(16, calculatedLeft);
+
+    setFilterPosition({
+      top: rect.bottom + 8,
+      left: left
+    });
   };
-  
+
   // Handle filter change callback
   const handleFilterChange = (colIndex: number) => (criteria: FilterCriteria) => {
     const isCleared = criteria.value === null && criteria.type !== 'empty' && criteria.type !== 'not empty';
 
     if (isCleared) {
-        setColumnFilters(prev => {
-            const newState = { ...prev };
-            delete newState[colIndex];
-            return newState;
-        });
+      setColumnFilters(prev => {
+        const newState = { ...prev };
+        delete newState[colIndex];
+        return newState;
+      });
     } else {
-        setColumnFilters(prev => ({
-            ...prev,
-            [colIndex]: criteria
-        }));
+      setColumnFilters(prev => ({
+        ...prev,
+        [colIndex]: criteria
+      }));
     }
   };
-  
+
   // Helper to check if a column has an active filter (for button styling)
   const isColumnFiltered = (colIndex: number) => {
-      const criteria = columnFilters[colIndex];
-      if (!criteria) return false;
-      return criteria.type === 'empty' || criteria.type === 'not empty' || 
-             (criteria.value !== null && (Array.isArray(criteria.value) ? criteria.value.length > 0 : String(criteria.value).length > 0));
+    const criteria = columnFilters[colIndex];
+    if (!criteria) return false;
+    return criteria.type === 'empty' || criteria.type === 'not empty' ||
+      (criteria.value !== null && (Array.isArray(criteria.value) ? criteria.value.length > 0 : String(criteria.value).length > 0));
   };
-  
+
   const isDateColumn = (colIndex: number): boolean => {
     const typeName = columnTypes[colIndex];
     return typeName === 'DateFilter';
@@ -317,15 +322,15 @@ const DataSheet = () => {
                   <div className="flex items-center justify-between">
                     {/* Sort Button Wrapper */}
                     <button onClick={() => handleSortClick(i)} className="flex items-center flex-1 cursor-pointer py-1 -ml-4 pl-4 transition hover:bg-gray-600/50 rounded-lg">
-                        <span className="truncate">{cell || <span className="text-gray-500 italic">No Header</span>}</span>
-                        <span className={`ml-2 transition duration-200 ${sortCol === i ? 'text-blue-400' : 'text-gray-500 opacity-0 group-hover:opacity-100'}`}>
-                            {sortCol === i ? (sortMode === "asc" ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />) : <ChevronUp className="w-4 h-4 opacity-50" />}
-                        </span>
+                      <span className="truncate">{cell || <span className="text-gray-500 italic">No Header</span>}</span>
+                      <span className={`ml-2 transition duration-200 ${sortCol === i ? 'text-blue-400' : 'text-gray-500 opacity-0 group-hover:opacity-100'}`}>
+                        {sortCol === i ? (sortMode === "asc" ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />) : <ChevronUp className="w-4 h-4 opacity-50" />}
+                      </span>
                     </button>
-                    
+
                     {/* Hamburger Button (Ref used for position calculation) */}
                     <div className="z-30 ml-2">
-                      <button 
+                      <button
                         onClick={e => { e.stopPropagation(); openFilterMenu(i); }}
                         ref={el => buttonRefs.current[i] = el}
                         className={`flex items-center justify-center p-1 rounded-full transition ${isColumnFiltered(i) ? 'bg-blue-600 hover:bg-blue-700' : 'hover:bg-gray-600'}`}>
@@ -371,23 +376,23 @@ const DataSheet = () => {
           <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 rounded-lg text-sm font-medium disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-700 transition shadow-md">Next <ArrowRight className="w-4 h-4" /></button>
         </div>
       </div>
-      
+
       {/* --- Filter Menu Portal (Fixed Position) --- */}
       {activeFilterCol !== null && filterPosition && (
-          <div 
-              ref={filterMenuRef}
-              className="fixed z-[100] transition-all" 
-              style={{ 
-                  top: `${filterPosition.top}px`, 
-                  left: `${filterPosition.left}px`,
-              }}
-          >
-              {filterClassifier(
-                  getColumnData(activeFilterCol) as ColumnData, 
-                  columnFilters[activeFilterCol], 
-                  handleFilterChange(activeFilterCol)
-              )}
-          </div>
+        <div
+          ref={filterMenuRef}
+          className="fixed z-[100] transition-all"
+          style={{
+            top: `${filterPosition.top}px`,
+            left: `${filterPosition.left}px`,
+          }}
+        >
+          {filterClassifier(
+            getColumnData(activeFilterCol) as ColumnData,
+            columnFilters[activeFilterCol],
+            handleFilterChange(activeFilterCol)
+          )}
+        </div>
       )}
     </div>
   );
