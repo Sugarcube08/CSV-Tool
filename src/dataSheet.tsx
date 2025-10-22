@@ -2,9 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import React from 'react';
 import { useCSV } from "./context/CSVContext";
 import { filterClassifier, applyFilter } from "./components/filterOnHoverOrClick";
-
-
-const NavLink = ({ to, className, children }: any) => <a href={to} className={className}>{children}</a>;
+import { NavLink } from "react-router";
 
 type SortMode = "asc" | "desc" | "original" | null;
 type RowType = (string | number | null)[];
